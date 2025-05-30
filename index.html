@@ -159,6 +159,59 @@
             color: #4ecdc4;
         }
 
+        .power-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+
+        .stat-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.5rem;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stat-label {
+            font-weight: bold;
+            color: #ff6b6b;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            color: white;
+            font-size: 0.9rem;
+        }
+
+        .abilities {
+            margin-bottom: 1rem;
+        }
+
+        .abilities-title {
+            font-weight: bold;
+            color: #4ecdc4;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+        }
+
+        .ability-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .ability-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.3rem 0.8rem;
+            margin-bottom: 0.3rem;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
         .original-input {
             font-size: 0.9rem;
             opacity: 0.7;
@@ -239,11 +292,38 @@
                         aspect_ratio: "1:1"
                     });
 
+                    // Generate Sigmore power card stats
+                    const statsCompletion = await websim.chat.completions.create({
+                        messages: [
+                            {
+                                role: "system",
+                                content: `You are creating a power card for a Sigmore character. Generate unique stats in JSON format with no other text. Make it extremely sigma/alpha themed with over-the-top abilities.
+                                
+{
+  "weight": "number with unit (lbs)",
+  "height": "number with unit (ft)",
+  "fighting_style": "unique sigma fighting style name",
+  "special_abilities": ["ability 1", "ability 2", "ability 3"],
+  "power_level": "number out of 9000",
+  "sigma_rank": "rank like Alpha Prime, Omega Supreme, etc"
+}`
+                            },
+                            {
+                                role: "user", 
+                                content: `Create power card stats for: ${sigmaPrompt}`
+                            }
+                        ],
+                        json: true
+                    });
+
+                    const stats = JSON.parse(statsCompletion.content);
+
                     // Save to database
                     await room.collection('sigmore').create({
                         original_input: sigmaInput,
                         sigma_prompt: sigmaPrompt,
-                        image_url: imageResult.url
+                        image_url: imageResult.url,
+                        stats: stats
                     });
 
                     setSigmaInput('');
@@ -306,6 +386,44 @@
                                 />
                                 <div className="card-content">
                                     <div className="sigma-prompt">{sigmore.sigma_prompt}</div>
+                                    
+                                    {sigmore.stats && (
+                                        <>
+                                            <div className="power-stats">
+                                                <div className="stat-item">
+                                                    <div className="stat-label">Height</div>
+                                                    <div className="stat-value">{sigmore.stats.height}</div>
+                                                </div>
+                                                <div className="stat-item">
+                                                    <div className="stat-label">Weight</div>
+                                                    <div className="stat-value">{sigmore.stats.weight}</div>
+                                                </div>
+                                                <div className="stat-item">
+                                                    <div className="stat-label">Power Level</div>
+                                                    <div className="stat-value">{sigmore.stats.power_level}</div>
+                                                </div>
+                                                <div className="stat-item">
+                                                    <div className="stat-label">Sigma Rank</div>
+                                                    <div className="stat-value">{sigmore.stats.sigma_rank}</div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="stat-item" style={{gridColumn: '1 / -1', marginBottom: '1rem'}}>
+                                                <div className="stat-label">Fighting Style</div>
+                                                <div className="stat-value">{sigmore.stats.fighting_style}</div>
+                                            </div>
+                                            
+                                            <div className="abilities">
+                                                <div className="abilities-title">Special Abilities</div>
+                                                <ul className="ability-list">
+                                                    {sigmore.stats.special_abilities?.map((ability, index) => (
+                                                        <li key={index} className="ability-item">{ability}</li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        </>
+                                    )}
+                                    
                                     <div className="original-input">
                                         Original: "{sigmore.original_input}"
                                     </div>
@@ -332,4 +450,3 @@
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
-
