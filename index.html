@@ -243,6 +243,183 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+
+        .trade-controls {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .trade-btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(45deg, #4ecdc4, #45b7d1);
+            color: white;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            flex: 1;
+        }
+
+        .trade-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .my-sigmore {
+            border: 2px solid #4ecdc4;
+            box-shadow: 0 0 20px rgba(78, 205, 196, 0.3);
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
+
+        .modal {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(15px);
+            border-radius: 20px;
+            padding: 2rem;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .modal-title {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: #4ecdc4;
+            text-align: center;
+        }
+
+        .sigmore-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+
+        .mini-sigmore {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .mini-sigmore:hover {
+            transform: scale(1.05);
+        }
+
+        .mini-sigmore.selected {
+            border-color: #4ecdc4;
+            box-shadow: 0 0 15px rgba(78, 205, 196, 0.5);
+        }
+
+        .mini-sigmore img {
+            width: 100%;
+            height: 80px;
+            object-fit: cover;
+        }
+
+        .mini-sigmore-info {
+            padding: 0.5rem;
+            font-size: 0.7rem;
+            text-align: center;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        .modal-btn {
+            flex: 1;
+            padding: 0.8rem;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .modal-btn.primary {
+            background: linear-gradient(45deg, #4ecdc4, #45b7d1);
+            color: white;
+        }
+
+        .modal-btn.secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .trade-notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(15px);
+            border-radius: 15px;
+            padding: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            z-index: 1001;
+            max-width: 350px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .notification-title {
+            font-weight: bold;
+            color: #4ecdc4;
+            margin-bottom: 0.5rem;
+        }
+
+        .notification-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .notification-btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.3s ease;
+        }
+
+        .notification-btn.accept {
+            background: #4ecdc4;
+            color: white;
+        }
+
+        .notification-btn.reject {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -257,12 +434,42 @@
         function SigmoreGallery() {
             const [sigmaInput, setSigmaInput] = useState('');
             const [isGenerating, setIsGenerating] = useState(false);
+            const [showTradeModal, setShowTradeModal] = useState(false);
+            const [targetSigmore, setTargetSigmore] = useState(null);
+            const [selectedTrades, setSelectedTrades] = useState([]);
+            const [currentUser, setCurrentUser] = useState(null);
+            const [tradeNotification, setTradeNotification] = useState(null);
             
             // Get sigmore records from database
             const sigmores = useSyncExternalStore(
                 room.collection('sigmore').subscribe,
                 room.collection('sigmore').getList
             );
+
+            useEffect(() => {
+                const initUser = async () => {
+                    const user = await window.websim.getCurrentUser();
+                    setCurrentUser(user);
+                };
+                initUser();
+
+                // Initialize room for trade notifications
+                room.initialize();
+
+                // Listen for trade offers
+                room.onmessage = (event) => {
+                    const data = event.data;
+                    if (data.type === 'trade_offer' && data.targetUser === currentUser?.username) {
+                        setTradeNotification(data);
+                    } else if (data.type === 'trade_response') {
+                        if (data.accepted) {
+                            alert(`Trade accepted! Your Sigmores have been exchanged.`);
+                        } else {
+                            alert(`Trade declined by ${data.from}.`);
+                        }
+                    }
+                };
+            }, [currentUser?.username]);
 
             const generateSigmore = async () => {
                 if (!sigmaInput.trim() || isGenerating) return;
@@ -323,7 +530,8 @@
                         original_input: sigmaInput,
                         sigma_prompt: sigmaPrompt,
                         image_url: imageResult.url,
-                        stats: stats
+                        stats: stats,
+                        username: currentUser?.username
                     });
 
                     setSigmaInput('');
@@ -340,6 +548,92 @@
                     generateSigmore();
                 }
             };
+
+            const openTradeModal = (sigmore) => {
+                if (sigmore.username === currentUser?.username) return;
+                setTargetSigmore(sigmore);
+                setSelectedTrades([]);
+                setShowTradeModal(true);
+            };
+
+            const toggleTradeSelection = (sigmore) => {
+                setSelectedTrades(prev => {
+                    const isSelected = prev.find(s => s.id === sigmore.id);
+                    if (isSelected) {
+                        return prev.filter(s => s.id !== sigmore.id);
+                    } else {
+                        return [...prev, sigmore];
+                    }
+                });
+            };
+
+            const sendTradeOffer = () => {
+                if (selectedTrades.length === 0) return;
+                
+                room.send({
+                    type: 'trade_offer',
+                    targetUser: targetSigmore.username,
+                    targetSigmore: targetSigmore,
+                    offeredSigmores: selectedTrades,
+                    from: currentUser.username,
+                    echo: false
+                });
+
+                setShowTradeModal(false);
+                alert(`Trade offer sent to ${targetSigmore.username}!`);
+            };
+
+            const handleTradeResponse = async (accepted) => {
+                if (accepted && tradeNotification) {
+                    try {
+                        // Execute the trade by transferring ownership
+                        const { targetSigmore, offeredSigmores } = tradeNotification;
+                        
+                        // Create new sigmore for the original owner with offered sigmores
+                        for (const sigmore of offeredSigmores) {
+                            await room.collection('sigmore').create({
+                                original_input: sigmore.original_input,
+                                sigma_prompt: sigmore.sigma_prompt,
+                                image_url: sigmore.image_url,
+                                stats: sigmore.stats
+                            });
+                            await room.collection('sigmore').delete(sigmore.id);
+                        }
+
+                        // Create new sigmore for the requesting user
+                        await room.collection('sigmore').create({
+                            original_input: targetSigmore.original_input,
+                            sigma_prompt: targetSigmore.sigma_prompt,
+                            image_url: targetSigmore.image_url,
+                            stats: targetSigmore.stats
+                        });
+                        await room.collection('sigmore').delete(targetSigmore.id);
+
+                        room.send({
+                            type: 'trade_response',
+                            accepted: true,
+                            from: currentUser.username,
+                            to: tradeNotification.from,
+                            echo: false
+                        });
+                    } catch (error) {
+                        console.error('Trade execution failed:', error);
+                        alert('Trade failed to execute. Please try again.');
+                    }
+                } else {
+                    room.send({
+                        type: 'trade_response',
+                        accepted: false,
+                        from: currentUser.username,
+                        to: tradeNotification.from,
+                        echo: false
+                    });
+                }
+
+                setTradeNotification(null);
+            };
+
+            const mySignores = sigmores.filter(s => s.username === currentUser?.username);
 
             return (
                 <div>
@@ -378,7 +672,10 @@
 
                     <div className="gallery">
                         {sigmores.reverse().map((sigmore) => (
-                            <div key={sigmore.id} className="sigmore-card">
+                            <div 
+                                key={sigmore.id} 
+                                className={`sigmore-card ${sigmore.username === currentUser?.username ? 'my-sigmore' : ''}`}
+                            >
                                 <img
                                     src={sigmore.image_url}
                                     alt={`Sigmore: ${sigmore.sigma_prompt}`}
@@ -431,10 +728,106 @@
                                         <span className="username">@{sigmore.username}</span>
                                         <span>{new Date(sigmore.created_at).toLocaleDateString()}</span>
                                     </div>
+
+                                    {currentUser && sigmore.username !== currentUser.username && (
+                                        <div className="trade-controls">
+                                            <button 
+                                                className="trade-btn"
+                                                onClick={() => openTradeModal(sigmore)}
+                                            >
+                                                🔄 Offer Trade
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ))}
                     </div>
+
+                    {showTradeModal && (
+                        <div className="modal-overlay" onClick={() => setShowTradeModal(false)}>
+                            <div className="modal" onClick={(e) => e.stopPropagation()}>
+                                <div className="modal-title">
+                                    Trade Offer for @{targetSigmore?.username}'s Sigmore
+                                </div>
+                                
+                                <div>
+                                    <h4>Target Sigmore:</h4>
+                                    <div className="mini-sigmore">
+                                        <img src={targetSigmore?.image_url} alt="Target Sigmore" />
+                                        <div className="mini-sigmore-info">
+                                            {targetSigmore?.sigma_prompt?.substring(0, 30)}...
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <h4>Select Your Sigmores to Trade:</h4>
+                                    <div className="sigmore-grid">
+                                        {mySignores.map((sigmore) => (
+                                            <div 
+                                                key={sigmore.id}
+                                                className={`mini-sigmore ${selectedTrades.find(s => s.id === sigmore.id) ? 'selected' : ''}`}
+                                                onClick={() => toggleTradeSelection(sigmore)}
+                                            >
+                                                <img src={sigmore.image_url} alt="My Sigmore" />
+                                                <div className="mini-sigmore-info">
+                                                    {sigmore.sigma_prompt?.substring(0, 20)}...
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {mySignores.length === 0 && (
+                                        <p>You need to create some Sigmores first!</p>
+                                    )}
+                                </div>
+
+                                <div className="modal-buttons">
+                                    <button 
+                                        className="modal-btn secondary"
+                                        onClick={() => setShowTradeModal(false)}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button 
+                                        className="modal-btn primary"
+                                        onClick={sendTradeOffer}
+                                        disabled={selectedTrades.length === 0}
+                                    >
+                                        Send Trade Offer ({selectedTrades.length} Sigmores)
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {tradeNotification && (
+                        <div className="trade-notification">
+                            <div className="notification-title">
+                                Trade Offer from @{tradeNotification.from}
+                            </div>
+                            <div>
+                                Wants your: {tradeNotification.targetSigmore.sigma_prompt?.substring(0, 40)}...
+                            </div>
+                            <div>
+                                Offering: {tradeNotification.offeredSigmores.length} Sigmore(s)
+                            </div>
+                            <div className="notification-buttons">
+                                <button 
+                                    className="notification-btn accept"
+                                    onClick={() => handleTradeResponse(true)}
+                                >
+                                    Accept
+                                </button>
+                                <button 
+                                    className="notification-btn reject"
+                                    onClick={() => handleTradeResponse(false)}
+                                >
+                                    Decline
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
                     {sigmores.length === 0 && (
                         <div className="loading">
