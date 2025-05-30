@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sigmore's Glory - Infinite Sigma Gallery</title>
+    <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+
+        .header {
+            text-align: center;
+            padding: 2rem;
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .title {
+            font-size: 3.5rem;
+            font-weight: bold;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4);
+            background-size: 400% 400%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: gradientShift 3s ease-in-out infinite;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            font-size: 1.2rem;
+            opacity: 0.8;
+            margin-bottom: 2rem;
+        }
+
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        .input-section {
+            max-width: 600px;
+            margin: 0 auto 3rem;
+            padding: 0 2rem;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .sigma-input {
+            flex: 1;
+            padding: 1rem;
+            border: none;
+            border-radius: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            color: white;
+            font-size: 1.1rem;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .sigma-input::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .sigma-input:focus {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.02);
+        }
+
+        .generate-btn {
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 15px;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            color: white;
+            font-weight: bold;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .generate-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .generate-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            text-align: center;
+            font-size: 1.2rem;
+            margin: 2rem 0;
+        }
+
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 2rem;
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .sigmore-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .sigmore-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .sigmore-image {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+        }
+
+        .sigmore-card:hover .sigmore-image {
+            transform: scale(1.05);
+        }
+
+        .card-content {
+            padding: 1.5rem;
+        }
+
+        .sigma-prompt {
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            color: #4ecdc4;
+        }
+
+        .original-input {
+            font-size: 0.9rem;
+            opacity: 0.7;
+            margin-bottom: 1rem;
+        }
+
+        .card-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            opacity: 0.6;
+        }
+
+        .username {
+            font-weight: bold;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useSyncExternalStore } = React;
+        
+        // Initialize WebsimSocket
+        const room = new WebsimSocket();
+
+        function SigmoreGallery() {
+            const [sigmaInput, setSigmaInput] = useState('');
+            const [isGenerating, setIsGenerating] = useState(false);
+            
+            // Get sigmore records from database
+            const sigmores = useSyncExternalStore(
+                room.collection('sigmore').subscribe,
+                room.collection('sigmore').getList
+            );
+
+            const generateSigmore = async () => {
+                if (!sigmaInput.trim() || isGenerating) return;
+                
+                setIsGenerating(true);
+                
+                try {
+                    // Use LLM to make the input more "Sigma"
+                    const sigmaCompletion = await websim.chat.completions.create({
+                        messages: [
+                            {
+                                role: "system",
+                                content: `You are the ultimate Sigma interpreter. Take any input and transform it into the most SIGMA, alpha, grindset-focused version possible. Make it extremely over-the-top sigma male energy. Include terms like "sigma grindset", "alpha energy", "based", "gigachad", etc. Make it sound like the most sigma thing ever conceived. Respond with just the enhanced sigma prompt, no explanations.`
+                            },
+                            {
+                                role: "user",
+                                content: sigmaInput
+                            }
+                        ]
+                    });
+
+                    const sigmaPrompt = sigmaCompletion.content;
+
+                    // Generate image of Sigmore with the sigma prompt
+                    const imageResult = await websim.imageGen({
+                        prompt: `Sigmore the ultimate sigma websim mascot, ${sigmaPrompt}, extremely sigma energy, alpha male, grindset, based, gigachad aesthetic, powerful pose, confident expression, digital art style`,
+                        aspect_ratio: "1:1"
+                    });
+
+                    // Save to database
+                    await room.collection('sigmore').create({
+                        original_input: sigmaInput,
+                        sigma_prompt: sigmaPrompt,
+                        image_url: imageResult.url
+                    });
+
+                    setSigmaInput('');
+                } catch (error) {
+                    console.error('Error generating Sigmore:', error);
+                    alert('Failed to generate Sigmore. Please try again.');
+                } finally {
+                    setIsGenerating(false);
+                }
+            };
+
+            const handleKeyPress = (e) => {
+                if (e.key === 'Enter' && !isGenerating) {
+                    generateSigmore();
+                }
+            };
+
+            return (
+                <div>
+                    <div className="header">
+                        <h1 className="title">Sigmore's Glory</h1>
+                        <p className="subtitle">The Infinite Gallery of Sigma Supremacy</p>
+                        
+                        <div className="input-section">
+                            <div className="input-container">
+                                <input
+                                    type="text"
+                                    className="sigma-input"
+                                    placeholder="Enter your sigma words... (they will become MORE sigma)"
+                                    value={sigmaInput}
+                                    onChange={(e) => setSigmaInput(e.target.value)}
+                                    onKeyPress={handleKeyPress}
+                                    disabled={isGenerating}
+                                />
+                                <button
+                                    className="generate-btn"
+                                    onClick={generateSigmore}
+                                    disabled={isGenerating || !sigmaInput.trim()}
+                                >
+                                    {isGenerating ? (
+                                        <>
+                                            <span className="loading-spinner"></span>
+                                            Generating...
+                                        </>
+                                    ) : (
+                                        'Generate Sigmore'
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="gallery">
+                        {sigmores.reverse().map((sigmore) => (
+                            <div key={sigmore.id} className="sigmore-card">
+                                <img
+                                    src={sigmore.image_url}
+                                    alt={`Sigmore: ${sigmore.sigma_prompt}`}
+                                    className="sigmore-image"
+                                />
+                                <div className="card-content">
+                                    <div className="sigma-prompt">{sigmore.sigma_prompt}</div>
+                                    <div className="original-input">
+                                        Original: "{sigmore.original_input}"
+                                    </div>
+                                    <div className="card-meta">
+                                        <span className="username">@{sigmore.username}</span>
+                                        <span>{new Date(sigmore.created_at).toLocaleDateString()}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {sigmores.length === 0 && (
+                        <div className="loading">
+                            <p>No Sigmores yet! Be the first to create one! 💪</p>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        ReactDOM.render(<SigmoreGallery />, document.getElementById('root'));
+    </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
+
