@@ -439,6 +439,8 @@
             const [selectedTrades, setSelectedTrades] = useState([]);
             const [currentUser, setCurrentUser] = useState(null);
             const [tradeNotification, setTradeNotification] = useState(null);
+            const [pendingTrades, setPendingTrades] = useState(new Set());
+            const [isExecutingTrade, setIsExecutingTrade] = useState(false);
             
             // Get sigmore records from database
             const sigmores = useSyncExternalStore(
@@ -551,6 +553,7 @@
 
             const openTradeModal = (sigmore) => {
                 if (sigmore.username === currentUser?.username) return;
+                if (pendingTrades.has(sigmore.id)) return; // Prevent trading if already pending
                 setTargetSigmore(sigmore);
                 setSelectedTrades([]);
                 setShowTradeModal(true);
@@ -569,6 +572,10 @@
 
             const sendTradeOffer = () => {
                 if (selectedTrades.length === 0) return;
+                if (pendingTrades.has(targetSigmore.id)) return; // Prevent duplicate offers
+                
+                // Add to pending trades
+                setPendingTrades(prev => new Set([...prev, targetSigmore.id]));
                 
                 room.send({
                     type: 'trade_offer',
@@ -576,6 +583,7 @@
                     targetSigmore: targetSigmore,
                     offeredSigmores: selectedTrades,
                     from: currentUser.username,
+                    tradeId: `${Date.now()}-${Math.random()}`, // Unique trade ID
                     echo: false
                 });
 
@@ -584,53 +592,110 @@
             };
 
             const handleTradeResponse = async (accepted) => {
-                if (accepted && tradeNotification) {
-                    try {
-                        // Execute the trade by transferring ownership
-                        const { targetSigmore, offeredSigmores } = tradeNotification;
+                if (!tradeNotification || isExecutingTrade) return;
+                
+                setIsExecutingTrade(true);
+                
+                try {
+                    if (accepted) {
+                        const { targetSigmore, offeredSigmores, tradeId } = tradeNotification;
                         
-                        // Create new sigmore for the original owner with offered sigmores
-                        for (const sigmore of offeredSigmores) {
-                            await room.collection('sigmore').create({
-                                original_input: sigmore.original_input,
-                                sigma_prompt: sigmore.sigma_prompt,
-                                image_url: sigmore.image_url,
-                                stats: sigmore.stats
-                            });
-                            await room.collection('sigmore').delete(sigmore.id);
+                        // Validate all sigmores still exist and belong to correct users
+                        const currentSigmores = room.collection('sigmore').getList();
+                        
+                        // Check target sigmore still exists and belongs to current user
+                        const validTargetSigmore = currentSigmores.find(s => 
+                            s.id === targetSigmore.id && s.username === currentUser.username
+                        );
+                        
+                        if (!validTargetSigmore) {
+                            throw new Error('Target Sigmore no longer exists or ownership changed');
+                        }
+                        
+                        // Check all offered sigmores still exist and belong to the offering user
+                        const validOfferedSigmores = [];
+                        for (const offered of offeredSigmores) {
+                            const validOffered = currentSigmores.find(s => 
+                                s.id === offered.id && s.username === tradeNotification.from
+                            );
+                            if (!validOffered) {
+                                throw new Error('One or more offered Sigmores no longer exist or ownership changed');
+                            }
+                            validOfferedSigmores.push(validOffered);
                         }
 
-                        // Create new sigmore for the requesting user
-                        await room.collection('sigmore').create({
-                            original_input: targetSigmore.original_input,
-                            sigma_prompt: targetSigmore.sigma_prompt,
-                            image_url: targetSigmore.image_url,
-                            stats: targetSigmore.stats
-                        });
-                        await room.collection('sigmore').delete(targetSigmore.id);
+                        // Execute trade atomically: delete first, then create
+                        const deletePromises = [
+                            room.collection('sigmore').delete(validTargetSigmore.id),
+                            ...validOfferedSigmores.map(s => room.collection('sigmore').delete(s.id))
+                        ];
+                        
+                        await Promise.all(deletePromises);
+                        
+                        // Create new sigmores with transferred ownership
+                        const createPromises = [
+                            // Transfer target sigmore to the offering user
+                            room.collection('sigmore').create({
+                                original_input: validTargetSigmore.original_input,
+                                sigma_prompt: validTargetSigmore.sigma_prompt,
+                                image_url: validTargetSigmore.image_url,
+                                stats: validTargetSigmore.stats
+                            }),
+                            // Transfer offered sigmores to current user
+                            ...validOfferedSigmores.map(s => 
+                                room.collection('sigmore').create({
+                                    original_input: s.original_input,
+                                    sigma_prompt: s.sigma_prompt,
+                                    image_url: s.image_url,
+                                    stats: s.stats
+                                })
+                            )
+                        ];
+                        
+                        await Promise.all(createPromises);
 
                         room.send({
                             type: 'trade_response',
                             accepted: true,
                             from: currentUser.username,
                             to: tradeNotification.from,
+                            tradeId: tradeId,
                             echo: false
                         });
-                    } catch (error) {
-                        console.error('Trade execution failed:', error);
-                        alert('Trade failed to execute. Please try again.');
+                    } else {
+                        room.send({
+                            type: 'trade_response',
+                            accepted: false,
+                            from: currentUser.username,
+                            to: tradeNotification.from,
+                            tradeId: tradeNotification.tradeId,
+                            echo: false
+                        });
                     }
-                } else {
+                } catch (error) {
+                    console.error('Trade execution failed:', error);
+                    alert(`Trade failed: ${error.message}`);
+                    
+                    // Send failure notification
                     room.send({
                         type: 'trade_response',
                         accepted: false,
+                        error: error.message,
                         from: currentUser.username,
                         to: tradeNotification.from,
+                        tradeId: tradeNotification.tradeId,
                         echo: false
                     });
+                } finally {
+                    setIsExecutingTrade(false);
+                    setTradeNotification(null);
+                    // Remove from pending trades
+                    setPendingTrades(prev => {
+                        const newSet = new Set(prev);
+                        newSet.delete(tradeNotification?.targetSigmore?.id);
+                        return newSet;
+                    });
                 }
-
-                setTradeNotification(null);
             };
 
             const mySignores = sigmores.filter(s => s.username === currentUser?.username);
@@ -734,8 +799,9 @@
                                             <button 
                                                 className="trade-btn"
                                                 onClick={() => openTradeModal(sigmore)}
+                                                disabled={pendingTrades.has(sigmore.id)}
                                             >
-                                                🔄 Offer Trade
+                                                {pendingTrades.has(sigmore.id) ? '⏳ Pending...' : '🔄 Offer Trade'}
                                             </button>
                                         </div>
                                     )}
@@ -792,9 +858,9 @@
                                     <button 
                                         className="modal-btn primary"
                                         onClick={sendTradeOffer}
-                                        disabled={selectedTrades.length === 0}
+                                        disabled={selectedTrades.length === 0 || pendingTrades.has(targetSigmore?.id)}
                                     >
-                                        Send Trade Offer ({selectedTrades.length} Sigmores)
+                                        {pendingTrades.has(targetSigmore?.id) ? 'Trade Pending...' : `Send Trade Offer (${selectedTrades.length} Sigmores)`}
                                     </button>
                                 </div>
                             </div>
@@ -816,12 +882,14 @@
                                 <button 
                                     className="notification-btn accept"
                                     onClick={() => handleTradeResponse(true)}
+                                    disabled={isExecutingTrade}
                                 >
-                                    Accept
+                                    {isExecutingTrade ? 'Processing...' : 'Accept'}
                                 </button>
                                 <button 
                                     className="notification-btn reject"
                                     onClick={() => handleTradeResponse(false)}
+                                    disabled={isExecutingTrade}
                                 >
                                     Decline
                                 </button>
